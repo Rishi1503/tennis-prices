@@ -44,6 +44,10 @@ def fake_kalshi(url, headers=None, timeout=30):
                 {"ticker": "KXATPMATCH", "tags": ["Tennis"]},
                 {"ticker": "KXATPSETWINNER", "tags": ["Tennis"]},
                 {"ticker": "KXNFLGAME", "tags": ["Football"]},
+                {"ticker": "KXLIGAPROMATCH", "tags": ["Table tennis"]},
+                {"ticker": "KXATP", "tags": ["Tennis"]},
+                {"ticker": "KXATPWTA", "tags": ["Tennis"]},
+                {"ticker": "KXITFDOUBLES", "tags": ["Tennis"]},
             ]
         }, {}
     if "series_ticker=KXATPMATCH" in url and "cursor=" not in url:
@@ -72,6 +76,8 @@ def fake_kalshi(url, headers=None, timeout=30):
                 )
             ]
         }, {}
+    if "series_ticker=" in url:
+        return {"markets": []}, {}  # the rest of the fixed list: nothing open
     raise AssertionError(url)
 
 
@@ -90,7 +96,34 @@ def test_kalshi_snapshot_reads_every_page_and_dollar_prices(isolated):
     first = dict(zip(collect.KALSHI_COLS, lines[1].split(","), strict=False))
     assert first["yes_bid"] == "0.66" and first["volume"] == "1520.0"
     state = json.loads((isolated / "state/kalshi_series.json").read_text())
-    assert state["series"] == ["KXATPMATCH", "KXATPSETWINNER"]  # football left out
+    assert {"KXATPMATCH", "KXATPSETWINNER"} <= set(state["series"])
+    for left_out in ("KXNFLGAME", "KXLIGAPROMATCH", "KXATP", "KXATPWTA", "KXITFDOUBLES"):
+        assert left_out not in state["series"]  # football, table tennis, futures, doubles
+
+
+def test_which_series_count_as_tennis_matches():
+    keep = [
+        "KXATPMATCH",
+        "KXWTAMATCH",
+        "KXITFWMATCH",
+        "KXATPCHALLENGERMATCH",
+        "KXATPSETWINNER",
+        "KXATPGAMETOTAL",
+        "KXATPEXACTMATCH",
+        "KXATPTIEBREAK",
+    ]
+    drop = [
+        "KXLIGAPROMATCH",
+        "KXATP",
+        "KXWTA",
+        "KXATPWTA",
+        "KXITFDOUBLES",
+        "KXATPCHALLENGERDOUBLES",
+        "KXUSOPEN",
+        "KXNFLGAME",
+    ]
+    assert all(collect.tennis_series(t) for t in keep)
+    assert not any(collect.tennis_series(t) for t in drop)
 
 
 def test_the_series_list_falls_back_when_the_catalog_fails(isolated):
@@ -99,7 +132,7 @@ def test_the_series_list_falls_back_when_the_catalog_fails(isolated):
             raise RuntimeError("503")
         return {"markets": []}, {}
 
-    assert collect.kalshi_series(TS, broken) == collect.KALSHI_FALLBACK
+    assert collect.kalshi_series(TS, broken) == sorted(collect.KALSHI_FALLBACK)
 
 
 EVENT = {
@@ -207,3 +240,12 @@ def test_a_run_with_no_open_markets_is_not_a_failure(monkeypatch, isolated):
     )
     assert collect.main(["--kalshi-only"]) == 0  # the off-season: nothing listed, nothing wrong
     assert not (isolated / "data/kalshi").exists()
+
+
+def test_a_list_saved_under_an_older_rule_is_redone(isolated):
+    """The first live run saved a list with table tennis and futures in it."""
+    old = {"day": TS.date().isoformat(), "series": ["KXLIGAPROMATCH", "KXATP"]}
+    (isolated / "state").mkdir(exist_ok=True)
+    (isolated / "state/kalshi_series.json").write_text(json.dumps(old))
+    series = collect.kalshi_series(TS, fake_kalshi)
+    assert "KXLIGAPROMATCH" not in series and "KXATPMATCH" in series

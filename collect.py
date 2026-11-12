@@ -46,6 +46,19 @@ KALSHI_FALLBACK = [  # the main tennis series, used when the catalog call fails
     "KXWTACHALLENGERMATCH",
 ]  # fmt: skip
 KALSHI_PREFIXES = ("KXATP", "KXWTA", "KXITF")
+# Match-level series only. November 12, 2026: a "tennis" tag also matched table tennis
+# (KXLIGAPROMATCH), and the catalog includes tournament futures (KXATP, KXWTA, KXATPWTA) and
+# doubles, about 640 of 1,081 markets in the first snapshot, none of use to the model.
+KALSHI_KINDS = ("MATCH", "SET", "GAME", "TOTAL", "SPREAD", "TIEBREAK", "EXACT", "SCORE")
+SERIES_RULE = 2  # bump when the rule above changes, so a list saved under the old rule is redone
+
+
+def tennis_series(ticker: str) -> bool:
+    t = str(ticker).upper()
+    return (t.startswith(KALSHI_PREFIXES) and "DOUBLES" not in t
+            and any(k in t for k in KALSHI_KINDS))  # fmt: skip
+
+
 KALSHI_COLS = [
     "snapshot_ts", "series_ticker", "event_ticker", "ticker", "status", "title", "subtitle",
     "yes_sub_title", "no_sub_title", "strike_type", "floor_strike", "cap_strike", "open_time",
@@ -129,21 +142,21 @@ def kalshi_series(ts: datetime, get=None) -> list[str]:
     """Tennis series tickers, from Kalshi's catalog at most once a day."""
     get = get or http_json
     state = load_state("kalshi_series")
-    if state.get("day") == ts.date().isoformat() and state.get("series"):
+    fresh = state.get("day") == ts.date().isoformat() and state.get("rule") == SERIES_RULE
+    if fresh and state.get("series"):
         return state["series"]
     try:
         body, _ = get(f"{KALSHI}/series?{urllib.parse.urlencode({'category': 'Sports'})}")
         found = sorted(
-            s["ticker"]
-            for s in body.get("series", [])
-            if str(s.get("ticker", "")).startswith(KALSHI_PREFIXES)
-            or "tennis" in json.dumps(s.get("tags") or []).lower()
+            s["ticker"] for s in body.get("series", []) if tennis_series(s.get("ticker"))
         )
     except RuntimeError as e:
         print(f"  Kalshi catalog unavailable ({e}); using the fixed list")
         found = []
-    series = found or KALSHI_FALLBACK
-    save_state("kalshi_series", {"day": ts.date().isoformat(), "series": series})
+    series = sorted(set(found) | set(KALSHI_FALLBACK))  # the fixed list is always included
+    save_state(
+        "kalshi_series", {"day": ts.date().isoformat(), "rule": SERIES_RULE, "series": series}
+    )
     return series
 
 
