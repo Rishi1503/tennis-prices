@@ -1,0 +1,42 @@
+name: collect prices
+
+on:
+  schedule:
+    - cron: "7,37 * * * *"  # every 30 minutes; GitHub may delay or skip a run when busy
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Take a snapshot
+        env:
+          THERUNDOWN_API_KEY: ${{ secrets.THERUNDOWN_API_KEY }}
+        run: python collect.py
+      - name: Save it
+        run: |
+          git config user.name "price-collector"
+          git config user.email "price-collector@users.noreply.github.com"
+          git add data state
+          if git diff --cached --quiet; then
+            echo "nothing new"
+            exit 0
+          fi
+          git commit -q -m "snapshot $(date -u +%Y-%m-%dT%H:%MZ)"
+          for attempt in 1 2 3; do
+            git pull -q --rebase && git push -q && exit 0
+            sleep $((attempt * 5))
+          done
+          echo "push failed after 3 attempts" && exit 1
