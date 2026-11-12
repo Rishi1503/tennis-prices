@@ -50,12 +50,12 @@ KALSHI_PREFIXES = ("KXATP", "KXWTA", "KXITF")
 # (KXLIGAPROMATCH), and the catalog includes tournament futures (KXATP, KXWTA, KXATPWTA) and
 # doubles, about 640 of 1,081 markets in the first snapshot, none of use to the model.
 KALSHI_KINDS = ("MATCH", "SET", "GAME", "TOTAL", "SPREAD", "TIEBREAK", "EXACT", "SCORE")
-SERIES_RULE = 2  # bump when the rule above changes, so a list saved under the old rule is redone
+SERIES_RULE = 3  # bump when the rule above changes, so a list saved under the old rule is redone
 
 
 def tennis_series(ticker: str) -> bool:
     t = str(ticker).upper()
-    return (t.startswith(KALSHI_PREFIXES) and "DOUBLES" not in t
+    return (t.startswith(KALSHI_PREFIXES) and "DOUBLES" not in t and "TABLE" not in t
             and any(k in t for k in KALSHI_KINDS))  # fmt: skip
 
 
